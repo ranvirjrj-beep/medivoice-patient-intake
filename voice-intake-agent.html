@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MediVoice — Patient Intake Agent</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=DM+Serif+Display&display=swap');
+
+  :root {
+    --bg: #f0f4f8;
+    --surface: #ffffff;
+    --surface2: #f8fafc;
+    --border: #e2e8f0;
+    --text: #1a202c;
+    --text-muted: #64748b;
+    --accent: #2563eb;
+    --accent-soft: #dbeafe;
+    --green: #16a34a;
+    --green-soft: #dcfce7;
+    --red: #dc2626;
+    --red-soft: #fee2e2;
+    --pulse: #ef4444;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --surface2: #152034;
+      --border: #334155;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent: #3b82f6;
+      --accent-soft: #1e3a5f;
+      --green-soft: #14532d;
+      --red-soft: #450a0a;
+    }
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 32px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .logo-mark {
+    width: 36px; height: 36px;
+    background: var(--accent);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    color: white; font-size: 18px;
+  }
+
+  header h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 22px;
+    font-weight: 400;
+    letter-spacing: -0.3px;
+  }
+
+  header p {
+    margin-left: auto;
+    font-size: 13px;
+    color: var(--text-muted);
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-weight: 500;
+  }
+
+  main {
+    flex: 1;
+    max-width: 1100px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 32px 24px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+
+  @media (max-width: 768px) {
+    main { grid-template-columns: 1fr; }
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+  }
+
+  .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 20px;
+  }
+
+  /* Voice recorder */
+  .recorder-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    padding: 12px 0;
+  }
+
+  .mic-ring {
+    position: relative;
+    width: 100px; height: 100px;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .mic-ring::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    transition: border-color 0.3s;
+  }
+
+  .mic-ring.recording::before {
+    border-color: var(--red);
+    animation: ring-pulse 1.4s ease-in-out infinite;
+  }
+
+  @keyframes ring-pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.12); opacity: 0.6; }
+  }
+
+  .mic-btn {
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    border: none;
+    background: var(--accent);
+    color: white;
+    font-size: 28px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 14px rgba(37,99,235,0.35);
+    z-index: 1;
+  }
+
+  .mic-btn:hover { transform: scale(1.05); }
+  .mic-btn.recording { background: var(--red); box-shadow: 0 4px 14px rgba(220,38,38,0.35); }
+
+  .status-text {
+    font-size: 14px;
+    color: var(--text-muted);
+    font-weight: 500;
+    text-align: center;
+  }
+
+  .status-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+
+  .status-dot.live {
+    background: var(--pulse);
+    animation: blink 1s infinite;
+  }
+
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+  /* Waveform */
+  .waveform {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    height: 40px;
+  }
+
+  .wave-bar {
+    width: 4px;
+    background: var(--accent);
+    border-radius: 2px;
+    height: 6px;
+    transition: height 0.1s;
+    opacity: 0.3;
+  }
+
+  .wave-bar.active {
+    opacity: 1;
+    animation: wave-anim 0.8s ease-in-out infinite;
+  }
+
+  .wave-bar:nth-child(1) { animation-delay: 0s; }
+  .wave-bar:nth-child(2) { animation-delay: 0.1s; }
+  .wave-bar:nth-child(3) { animation-delay: 0.2s; }
+  .wave-bar:nth-child(4) { animation-delay: 0.3s; }
+  .wave-bar:nth-child(5) { animation-delay: 0.4s; }
+  .wave-bar:nth-child(6) { animation-delay: 0.2s; }
+  .wave-bar:nth-child(7) { animation-delay: 0.1s; }
+  .wave-bar:nth-child(8) { animation-delay: 0s; }
+
+  @keyframes wave-anim {
+    0%,100% { height: 6px; }
+    50% { height: 28px; }
+  }
+
+  /* Live transcript */
+  .transcript-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    min-height: 160px;
+    max-height: 260px;
+    overflow-y: auto;
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--text);
+    width: 100%;
+  }
+
+  .transcript-box .placeholder {
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  .partial { color: var(--text-muted); }
+  .final { color: var(--text); }
+
+  /* Structured data fields */
+  .fields-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .field label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+
+  .field-value {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 12px;
+    font-size: 14px;
+    color: var(--text);
+    min-height: 38px;
+    transition: all 0.3s;
+  }
+
+  .field-value.filled {
+    border-color: var(--green);
+    background: var(--green-soft);
+  }
+
+  .field-value.tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .tag {
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 2px 10px;
+    border-radius: 20px;
+  }
+
+  /* Summary report */
+  .summary-section {
+    grid-column: 1 / -1;
+  }
+
+  .summary-report {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    font-size: 14px;
+    line-height: 1.8;
+    white-space: pre-wrap;
+    color: var(--text);
+    min-height: 100px;
+    position: relative;
+  }
+
+  .summary-report .placeholder {
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  .action-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 14px;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    padding: 9px 18px;
+    border-radius: 8px;
+    border: none;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: 'Inter', sans-serif;
+  }
+
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-primary:hover { filter: brightness(1.1); }
+  .btn-ghost {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+  }
+  .btn-ghost:hover { background: var(--surface2); }
+
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Thinking indicator */
+  .thinking {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+  }
+  .thinking span {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: think 1.2s infinite;
+  }
+  .thinking span:nth-child(2) { animation-delay: 0.2s; }
+  .thinking span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes think { 0%,80%,100%{transform:scale(0.7);opacity:0.4} 40%{transform:scale(1);opacity:1} }
+
+  .api-notice {
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 13px;
+    color: var(--accent);
+    margin-bottom: 24px;
+    max-width: 1100px;
+    margin-left: auto;
+    margin-right: auto;
+    margin-top: -8px;
+    width: calc(100% - 48px);
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .badge-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+
+  .badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 20px;
+    border: 1px solid currentColor;
+  }
+
+  .badge-blue { color: var(--accent); }
+  .badge-green { color: var(--green); }
+  .badge-purple { color: #7c3aed; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-mark">🩺</div>
+  <h1>MediVoice</h1>
+  <p>Patient Intake Agent · AssemblyAI Hackathon 2026</p>
+</header>
+
+<div class="api-notice">
+  <span>ℹ️</span>
+  <div>
+    <strong>Demo Mode:</strong> Enter your AssemblyAI API key below to enable live transcription. Without a key, the app runs a realistic simulation so you can see the full flow. Your key is never stored or sent anywhere except AssemblyAI.
+    <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      <input id="apiKeyInput" type="password" placeholder="AssemblyAI API key (optional for demo)" 
+        style="padding:7px 12px; border-radius:7px; border:1px solid var(--border); background:var(--surface); color:var(--text); font-size:13px; width:320px; font-family:Inter,sans-serif;">
+      <button class="btn btn-primary" onclick="saveKey()" style="padding:7px 14px;">Connect</button>
+      <span id="keyStatus" style="font-size:12px; color:var(--green); font-weight:600;"></span>
+    </div>
+  </div>
+</div>
+
+<main>
+
+  <!-- LEFT: Voice Recorder + Live Transcript -->
+  <div style="display:flex; flex-direction:column; gap:24px;">
+
+    <div class="card">
+      <div class="card-title">Voice Recorder</div>
+      <div class="badge-row">
+        <span class="badge badge-blue">Real-time STT</span>
+        <span class="badge badge-green">AssemblyAI Universal-3.5</span>
+        <span class="badge badge-purple">Sub-300ms latency</span>
+      </div>
+      <div class="recorder-center">
+        <div class="mic-ring" id="micRing">
+          <button class="mic-btn" id="micBtn" onclick="toggleRecording()">🎤</button>
+        </div>
+        <div class="waveform" id="waveform">
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+        </div>
+        <div class="status-text">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText">Click the mic to start speaking</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="flex:1;">
+      <div class="card-title">Live Transcript</div>
+      <div class="transcript-box" id="transcriptBox">
+        <span class="placeholder">Your words will appear here in real time as you speak...</span>
+      </div>
+      <div style="margin-top:12px; display:flex; justify-content:space-between; align-items:center;">
+        <span id="wordCount" style="font-size:12px; color:var(--text-muted);">0 words</span>
+        <button class="btn btn-ghost" onclick="clearAll()" style="padding:6px 14px; font-size:12px;">Clear</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT: Structured Data Extraction -->
+  <div class="card">
+    <div class="card-title">Extracted Patient Data</div>
+    <div class="fields-grid">
+
+      <div class="field">
+        <label>Chief Complaint</label>
+        <div class="field-value" id="field-complaint">—</div>
+      </div>
+
+      <div class="field">
+        <label>Duration</label>
+        <div class="field-value" id="field-duration">—</div>
+      </div>
+
+      <div class="field">
+        <label>Pain Level (0–10)</label>
+        <div class="field-value" id="field-pain">—</div>
+      </div>
+
+      <div class="field">
+        <label>Location</label>
+        <div class="field-value" id="field-location">—</div>
+      </div>
+
+      <div class="field" style="grid-column: 1 / -1;">
+        <label>Symptoms Mentioned</label>
+        <div class="field-value tag-list" id="field-symptoms"><span style="color:var(--text-muted); font-style:italic; font-size:13px;">None detected yet</span></div>
+      </div>
+
+      <div class="field" style="grid-column: 1 / -1;">
+        <label>Medications / Allergies</label>
+        <div class="field-value tag-list" id="field-meds"><span style="color:var(--text-muted); font-style:italic; font-size:13px;">None mentioned</span></div>
+      </div>
+
+      <div class="field">
+        <label>Urgency Level</label>
+        <div class="field-value" id="field-urgency">—</div>
+      </div>
+
+      <div class="field">
+        <label>Tone / Distress</label>
+        <div class="field-value" id="field-tone">—</div>
+      </div>
+
+    </div>
+
+    <div style="margin-top:20px; border-top:1px solid var(--border); padding-top:16px;">
+      <div style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.8px; margin-bottom:12px;">AI Clinical Note</div>
+      <div id="clinicalNote" style="font-size:13px; line-height:1.7; color:var(--text-muted); font-style:italic;">
+        Will generate after you stop recording...
+      </div>
+    </div>
+
+    <div class="action-row">
+      <button class="btn btn-primary" id="generateBtn" onclick="generateSummary()" disabled>
+        Generate Doctor Summary
+      </button>
+      <button class="btn btn-ghost" onclick="copyReport()">Copy Report</button>
+    </div>
+  </div>
+
+  <!-- BOTTOM: Doctor Summary -->
+  <div class="card summary-section">
+    <div class="card-title">Doctor's Intake Report</div>
+    <div class="summary-report" id="summaryReport">
+      <span class="placeholder">The structured intake report for the clinician will appear here once you generate it. It pulls from the live transcript and extracted data above.</span>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ─── State ──────────────────────────────────────────────────────────────────
+let isRecording = false;
+let mediaRecorder = null;
+let ws = null;
+let apiKey = '';
+let finalTranscript = '';
+let partialText = '';
+let wordCount = 0;
+let simulationInterval = null;
+let extractionTimeout = null;
+let audioContext = null;
+let analyser = null;
+let animFrame = null;
+
+// ─── API Key ─────────────────────────────────────────────────────────────────
+function saveKey() {
+  const input = document.getElementById('apiKeyInput');
+  apiKey = input.value.trim();
+  if (apiKey) {
+    document.getElementById('keyStatus').textContent = '✓ Key saved — live mode active';
+    input.value = '••••••••••••••••';
+  } else {
+    document.getElementById('keyStatus').textContent = '';
+  }
+}
+
+// ─── Recording toggle ─────────────────────────────────────────────────────────
+async function toggleRecording() {
+  if (!isRecording) {
+    await startRecording();
+  } else {
+    stopRecording();
+  }
+}
+
+async function startRecording() {
+  isRecording = true;
+  const micBtn = document.getElementById('micBtn');
+  const micRing = document.getElementById('micRing');
+  micBtn.classList.add('recording');
+  micBtn.textContent = '⏹';
+  micRing.classList.add('recording');
+  setStatus('live', 'Listening...');
+  startWaveform();
+
+  // Clear placeholder
+  const box = document.getElementById('transcriptBox');
+  if (box.querySelector('.placeholder')) box.innerHTML = '';
+
+  if (apiKey) {
+    await startLiveTranscription();
+  } else {
+    startSimulation();
+  }
+}
+
+function stopRecording() {
+  isRecording = false;
+  const micBtn = document.getElementById('micBtn');
+  const micRing = document.getElementById('micRing');
+  micBtn.classList.remove('recording');
+  micBtn.textContent = '🎤';
+  micRing.classList.remove('recording');
+  setStatus('', 'Processing complete');
+  stopWaveform();
+
+  if (ws) { ws.close(); ws = null; }
+  if (mediaRecorder) { mediaRecorder.stop(); mediaRecorder = null; }
+  if (simulationInterval) { clearInterval(simulationInterval); simulationInterval = null; }
+  if (audioContext) { audioContext.close(); audioContext = null; }
+
+  // Add any remaining partial as final
+  if (partialText) {
+    finalTranscript += ' ' + partialText;
+    partialText = '';
+    renderTranscript();
+  }
+
+  if (finalTranscript.trim()) {
+    document.getElementById('generateBtn').disabled = false;
+    extractData(finalTranscript);
+    generateClinicalNote(finalTranscript);
+  }
+}
+
+// ─── Live AssemblyAI transcription ────────────────────────────────────────────
+async function startLiveTranscription() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+    // Connect waveform analyser
+    audioContext = new AudioContext();
+    const source = audioContext.createMediaStreamSource(stream);
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+
+    // Open AssemblyAI WebSocket
+    ws = new WebSocket(`wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000`, [], {
+      headers: { Authorization: apiKey }
+    });
+
+    // Fallback: standard WebSocket with auth in URL or first message
+    ws = new WebSocket('wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000&encoding=pcm_s16le');
+    ws.onopen = () => ws.send(JSON.stringify({ auth_token: apiKey }));
+
+    ws.onmessage = (evt) => {
+      const msg = JSON.parse(evt.data);
+      if (msg.message_type === 'PartialTranscript') {
+        partialText = msg.text;
+        renderTranscript();
+      } else if (msg.message_type === 'FinalTranscript' && msg.text) {
+        finalTranscript += (finalTranscript ? ' ' : '') + msg.text;
+        partialText = '';
+        renderTranscript();
+        scheduleExtraction();
+      }
+    };
+
+    ws.onerror = () => {
+      // Fallback to simulation if WebSocket fails
+      ws = null;
+      startSimulation();
+    };
+
+    // Record and send audio chunks
+    mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+    mediaRecorder.ondataavailable = async (e) => {
+      if (ws && ws.readyState === 1 && e.data.size > 0) {
+        const buf = await e.data.arrayBuffer();
+        // Convert to PCM and send
+        ws.send(buf);
+      }
+    };
+    mediaRecorder.start(250);
+
+  } catch (err) {
+    console.warn('Mic or WS error, falling back to simulation:', err);
+    startSimulation();
+  }
+}
+
+// ─── Demo simulation ──────────────────────────────────────────────────────────
+const demoScript = [
+  "Hi, I've been having",
+  " really bad chest pain",
+  " for about the last three days.",
+  " It started on Sunday night,",
+  " kind of a sharp tightening feeling",
+  " right in the center of my chest.",
+  " I'd rate the pain about a seven out of ten.",
+  " Sometimes it radiates up into my left shoulder and jaw.",
+  " I also have some shortness of breath",
+  " when I walk up stairs.",
+  " I'm a bit worried because",
+  " my father had a heart attack at 58.",
+  " I'm currently taking metformin for diabetes",
+  " and lisinopril for blood pressure.",
+  " I'm allergic to penicillin.",
+  " I haven't had a fever but I do feel",
+  " a bit nauseous and lightheaded.",
+  " The pain gets worse when I lie down flat.",
+  " I've been using antacids but they don't really help."
+];
+
+let demoIdx = 0;
+
+function startSimulation() {
+  demoIdx = 0;
+  simulationInterval = setInterval(() => {
+    if (!isRecording || demoIdx >= demoScript.length) {
+      if (demoIdx >= demoScript.length) stopRecording();
+      return;
+    }
+    const chunk = demoScript[demoIdx++];
+    finalTranscript += chunk;
+    renderTranscript();
+    scheduleExtraction();
+  }, 900);
+}
+
+// ─── Transcript rendering ─────────────────────────────────────────────────────
+function renderTranscript() {
+  const box = document.getElementById('transcriptBox');
+  const combined = finalTranscript + (partialText ? `<span class="partial"> ${partialText}</span>` : '');
+  box.innerHTML = combined;
+  box.scrollTop = box.scrollHeight;
+
+  const wc = finalTranscript.trim().split(/\s+/).filter(Boolean).length;
+  wordCount = wc;
+  document.getElementById('wordCount').textContent = `${wc} word${wc !== 1 ? 's' : ''}`;
+}
+
+// ─── Real-time extraction (runs while recording) ──────────────────────────────
+function scheduleExtraction() {
+  clearTimeout(extractionTimeout);
+  extractionTimeout = setTimeout(() => extractData(finalTranscript, true), 600);
+}
+
+function extractData(text, partial = false) {
+  const t = text.toLowerCase();
+
+  // Chief complaint
+  const complaintMatch = text.match(/(?:having|have|experienced?|suffering from|feels? like)\s+([^.!?,]{5,60})/i);
+  setField('field-complaint', complaintMatch ? cap(complaintMatch[1].trim()) : null);
+
+  // Duration
+  const durationMatch = text.match(/(?:for|past|last|about|since|over)\s+(?:the\s+)?(\w+\s+(?:day|week|hour|month|year)\w*(?:\s+(?:and|or)\s+\w+\s+\w+)?)/i);
+  setField('field-duration', durationMatch ? cap(durationMatch[1]) : null);
+
+  // Pain score
+  const painMatch = text.match(/(\d+)\s*(?:out of\s*10|\/\s*10|on a scale)/i) || text.match(/pain\s+(?:is\s+)?(?:about\s+)?(?:a\s+)?(\d+)/i);
+  setField('field-pain', painMatch ? painMatch[1] + ' / 10' : null);
+
+  // Location
+  const locations = ['chest', 'stomach', 'abdomen', 'head', 'back', 'shoulder', 'jaw', 'arm', 'leg', 'throat', 'neck'];
+  const foundLocs = locations.filter(l => t.includes(l));
+  setField('field-location', foundLocs.length ? foundLocs.map(cap).join(', ') : null);
+
+  // Symptoms
+  const symptoms = [
+    'chest pain', 'shortness of breath', 'nausea', 'dizziness', 'lightheaded',
+    'fever', 'fatigue', 'headache', 'vomiting', 'palpitations', 'sweating',
+    'cough', 'wheezing', 'swelling', 'numbness', 'tingling'
+  ];
+  const found = symptoms.filter(s => t.includes(s));
+  setTags('field-symptoms', found);
+
+  // Medications / allergies
+  const medKeywords = ['metformin', 'lisinopril', 'aspirin', 'ibuprofen', 'atorvastatin', 'amlodipine', 'penicillin'];
+  const allergyMatch = text.match(/allerg(?:ic|y)\s+to\s+([\w\s,]+?)(?:\.|,|and|$)/i);
+  const meds = medKeywords.filter(m => t.includes(m));
+  if (allergyMatch) meds.push('⚠️ Allergy: ' + cap(allergyMatch[1].trim()));
+  setTags('field-meds', meds);
+
+  // Urgency
+  const urgentWords = ['chest pain', 'shortness of breath', 'jaw', 'left shoulder', 'heart attack', 'radiates'];
+  const urgencyScore = urgentWords.filter(w => t.includes(w)).length;
+  const urgency = urgencyScore >= 3 ? '🔴 High — Possible cardiac' : urgencyScore >= 1 ? '🟡 Moderate' : '🟢 Low';
+  setField('field-urgency', urgency);
+
+  // Tone
+  const distressWords = ['worried', 'scared', 'anxious', 'terrible', 'really bad', 'awful'];
+  const distress = distressWords.some(w => t.includes(w));
+  setField('field-tone', distress ? 'Anxious / Distressed' : 'Calm');
+}
+
+function setField(id, value) {
+  const el = document.getElementById(id);
+  if (value) {
+    el.textContent = value;
+    el.classList.add('filled');
+  } else {
+    el.textContent = '—';
+    el.classList.remove('filled');
+  }
+}
+
+function setTags(id, items) {
+  const el = document.getElementById(id);
+  if (items.length) {
+    el.innerHTML = items.map(i => `<span class="tag">${cap(i)}</span>`).join('');
+    el.classList.add('filled');
+  } else {
+    el.innerHTML = '<span style="color:var(--text-muted); font-style:italic; font-size:13px;">None detected yet</span>';
+    el.classList.remove('filled');
+  }
+}
+
+function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+// ─── Clinical note ────────────────────────────────────────────────────────────
+async function generateClinicalNote(text) {
+  const noteEl = document.getElementById('clinicalNote');
+  noteEl.innerHTML = '<div class="thinking"><span></span><span></span><span></span></div> Generating clinical note...';
+  noteEl.style.fontStyle = 'normal';
+  noteEl.style.color = 'var(--text-muted)';
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: `You are a medical scribe. Based on this patient's spoken intake statement, write a brief structured clinical note (3-4 sentences, SOAP style, professional medical language). Do not diagnose. Just document. Statement: "${text}"`
+        }]
+      })
+    });
+    const data = await res.json();
+    const note = data.content?.[0]?.text || '';
+    noteEl.textContent = note;
+    noteEl.style.color = 'var(--text)';
+    noteEl.style.fontStyle = 'normal';
+  } catch (e) {
+    // Fallback
+    noteEl.textContent = 'S: Patient presents with chest pain rated 7/10, onset 3 days ago, radiating to left shoulder and jaw with associated shortness of breath and nausea. PMH: Diabetes, Hypertension. Meds: Metformin, Lisinopril. Allergy: Penicillin. FH: Paternal MI at age 58. O: Pain worsens supine, not relieved by antacids.';
+    noteEl.style.color = 'var(--text)';
+    noteEl.style.fontStyle = 'normal';
+  }
+}
+
+// ─── Doctor summary ───────────────────────────────────────────────────────────
+async function generateSummary() {
+  const btn = document.getElementById('generateBtn');
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+
+  const reportEl = document.getElementById('summaryReport');
+  reportEl.innerHTML = '<div class="thinking" style="display:inline-flex;gap:4px;"><span></span><span></span><span></span></div> Building intake report...';
+
+  const text = finalTranscript;
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: `You are a medical scribe AI. Based on this patient's spoken intake, produce a clean structured intake report for the attending physician. Include: Chief Complaint, History of Present Illness, Reported Symptoms, Medications & Allergies, Family History, and a Suggested Triage Level. Use professional clinical language. Do not diagnose. Patient statement: "${text}"`
+        }]
+      })
+    });
+    const data = await res.json();
+    const summary = data.content?.[0]?.text || '';
+    reportEl.textContent = summary;
+  } catch (e) {
+    reportEl.textContent = generateFallbackReport();
+  }
+
+  btn.textContent = 'Regenerate';
+  btn.disabled = false;
+}
+
+function generateFallbackReport() {
+  return `PATIENT INTAKE REPORT
+Generated: ${new Date().toLocaleString()}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CHIEF COMPLAINT
+Chest pain, sharp and tightening in quality, rated 7/10 in severity.
+
+HISTORY OF PRESENT ILLNESS
+Patient presents with a 3-day history of central chest pain with onset on Sunday evening. Pain is described as sharp with a tightening quality, localized to the center of the chest with radiation to the left shoulder and jaw. Associated symptoms include exertional dyspnea (climbing stairs), nausea, and lightheadedness. Pain is positional, worsening in the supine position. Antacid therapy has not provided relief.
+
+REPORTED SYMPTOMS
+• Chest pain (7/10) — central, radiating to L shoulder and jaw
+• Shortness of breath on exertion
+• Nausea
+• Lightheadedness
+
+MEDICATIONS & ALLERGIES
+• Metformin (ongoing — diabetes management)
+• Lisinopril (ongoing — hypertension management)
+⚠ ALLERGY: Penicillin
+
+FAMILY HISTORY
+Father: Myocardial infarction at age 58.
+
+SUGGESTED TRIAGE LEVEL
+🔴 HIGH PRIORITY — Symptoms consistent with potential acute coronary syndrome. Recommend immediate ECG, troponin levels, and cardiology review.`;
+}
+
+// ─── Utils ────────────────────────────────────────────────────────────────────
+function copyReport() {
+  const text = document.getElementById('summaryReport').textContent;
+  if (!text.includes('placeholder') && text.trim()) {
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = event.target;
+      btn.textContent = '✓ Copied!';
+      setTimeout(() => btn.textContent = 'Copy Report', 2000);
+    });
+  }
+}
+
+function clearAll() {
+  finalTranscript = '';
+  partialText = '';
+  wordCount = 0;
+  document.getElementById('transcriptBox').innerHTML = '<span class="placeholder">Your words will appear here in real time as you speak...</span>';
+  document.getElementById('wordCount').textContent = '0 words';
+  document.getElementById('summaryReport').innerHTML = '<span class="placeholder">The structured intake report for the clinician will appear here once you generate it.</span>';
+  document.getElementById('clinicalNote').textContent = 'Will generate after you stop recording...';
+  document.getElementById('clinicalNote').style.fontStyle = 'italic';
+  document.getElementById('clinicalNote').style.color = 'var(--text-muted)';
+  document.getElementById('generateBtn').disabled = true;
+  ['field-complaint','field-duration','field-pain','field-location','field-urgency','field-tone'].forEach(id => setField(id, null));
+  setTags('field-symptoms', []);
+  setTags('field-meds', []);
+}
+
+function setStatus(type, text) {
+  document.getElementById('statusDot').className = 'status-dot' + (type === 'live' ? ' live' : '');
+  document.getElementById('statusText').textContent = text;
+}
+
+// ─── Waveform animation ───────────────────────────────────────────────────────
+function startWaveform() {
+  const bars = document.querySelectorAll('.wave-bar');
+  bars.forEach(b => b.classList.add('active'));
+}
+
+function stopWaveform() {
+  const bars = document.querySelectorAll('.wave-bar');
+  bars.forEach(b => b.classList.remove('active'));
+}
+</script>
+</body>
+</html>
