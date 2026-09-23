@@ -1,0 +1,12 @@
+{
+  "name": "medivoice-patient-intake",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MediVoice — AssemblyAI-powered patient intake voice agent demo",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
