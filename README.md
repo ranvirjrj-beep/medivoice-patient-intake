@@ -1,148 +1,131 @@
 # 🩺 MediVoice — AI Patient Intake Voice Agent
 
-> **AssemblyAI Voice Agent Hackathon 2026 Submission**
+> **AssemblyAI Voice Agent Hackathon 2026**
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-Click%20Here-blue?style=for-the-badge)](https://claude.ai/artifact/J7VyabpyobcSsLhDqMbgxw)
-[![AssemblyAI](https://img.shields.io/badge/Built%20with-AssemblyAI-orange?style=for-the-badge)](https://assemblyai.com)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+MediVoice is a browser-based patient intake prototype that turns spoken patient descriptions into a structured clinician-facing intake report. It uses **AssemblyAI Universal-3.5 Pro Realtime** for live speech-to-text, then structures key intake fields in the browser with no second paid AI API required.
 
----
+## ✅ Verified live on 23 Sep 2026
 
-## 🎯 The Problem
+The real API-key end-to-end test passed:
 
-Every day, doctors and nurses waste **2–3 hours** on patient intake paperwork.
-- Patients fill long paper forms
-- Nurses re-enter the same data into computers
-- Doctors read unstructured, hard-to-scan notes
-- Critical information (allergies, urgency) gets missed
+- Browser microphone capture
+- Secure short-lived AssemblyAI token flow
+- AssemblyAI v3 Streaming API
+- Live transcript rendering
+- Chief complaint / duration / pain / location extraction
+- Symptom extraction
+- Medication + allergy extraction
+- Clinical note generation
+- Doctor intake report generation
+- Report auto-scroll / visible completion feedback
+- Offline demo simulation fallback
 
-**This costs hospitals hundreds of hours monthly — and puts patients at risk.**
+## Architecture
 
----
-
-## ✅ The Solution
-
-**MediVoice** lets patients simply *speak*.
-
-The patient describes their symptoms out loud. MediVoice:
-1. **Transcribes in real-time** using AssemblyAI Universal-3.5 (sub-300ms latency)
-2. **Extracts structured data** automatically — no typing needed
-3. **Generates a clinical note** in SOAP format using AI
-4. **Produces a doctor-ready intake report** with triage level flagged
-
----
-
-## 🚀 Live Demo
-
-👉 **[Try MediVoice Live](https://claude.ai/artifact/J7VyabpyobcSsLhDqMbgxw)**
-
-No installation needed. Works in any browser.
-- Click the mic button
-- Speak (or watch the demo simulation)
-- See real-time extraction and report generation
-
----
-
-## 🎬 What It Does — Feature by Feature
-
-| Feature | Description |
-|---|---|
-| 🎤 Real-time transcription | AssemblyAI Universal-3.5 Pro, sub-300ms |
-| 🧠 Live data extraction | Chief complaint, pain level, duration, location |
-| 💊 Medication detection | Auto-detects drug names and allergies |
-| 🔴 Urgency flagging | Flags cardiac symptoms instantly |
-| 📋 SOAP clinical note | AI-generated in seconds |
-| 📄 Doctor's intake report | Structured, copy-paste ready |
-| 🌙 Dark/Light mode | Automatic theme detection |
-| 📱 Fully responsive | Works on phone, tablet, desktop |
-
----
-
-## 🛠️ Tech Stack
-
-```
-AssemblyAI Universal-3.5 Pro  →  Real-time speech-to-text
-Claude AI (claude-sonnet-4-6) →  Clinical note + report generation  
-HTML5 / CSS3 / JavaScript     →  Frontend (zero dependencies)
-Web Audio API                 →  Microphone access + waveform
-WebSocket                     →  Live streaming to AssemblyAI
+```text
+Browser microphone
+    ↓
+PCM16 mono audio @ 16 kHz
+    ↓
+AssemblyAI v3 Streaming API
+(universal-3-5-pro + medical-v1)
+    ↓
+Live transcript turns
+    ↓
+MediVoice client-side intake structuring
+    ↓
+Clinician-facing intake report
 ```
 
-**No framework. No build step. No installation.**
-Open the HTML file in any browser and it works.
+The browser never receives the permanent AssemblyAI API key. A tiny dependency-free Node server mints a short-lived streaming token and returns only that token to the browser.
 
----
+## Run locally
 
-## 📁 Project Structure
+### Requirements
 
+- Node.js 18+
+- A free AssemblyAI API key
+
+No npm packages are required.
+
+### Windows
+
+Open PowerShell in the project folder and run:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run-medivoice.ps1
 ```
+
+If the browser does not open automatically, keep the PowerShell window running and open:
+
+```text
+http://localhost:3000/voice-intake-agent.html
+```
+
+Then choose **Enable Live AssemblyAI**, allow microphone access, click the mic and speak.
+
+### macOS/Linux
+
+```bash
+export ASSEMBLYAI_API_KEY="your_key_here"
+npm start
+```
+
+Then open:
+
+```text
+http://localhost:3000/voice-intake-agent.html
+```
+
+Never commit the real key. `.env` files are ignored by Git.
+
+## Demo mode
+
+If a live connection is unavailable during a presentation, choose **Use Demo Simulation**. The simulation exercises the same transcript → extraction → report UI without an API key.
+
+## AssemblyAI streaming configuration
+
+MediVoice uses:
+
+```text
+wss://streaming.assemblyai.com/v3/ws
+speech_model=universal-3-5-pro
+sample_rate=16000
+domain=medical-v1
+mode=balanced
+```
+
+Audio is sent as 16-bit mono PCM frames, and the browser reads AssemblyAI `Turn` events for partial/final text.
+
+## Files
+
+```text
 medivoice-patient-intake/
-│
-├── voice-intake-agent.html   # Complete app — single file
-└── README.md                 # This file
+├── voice-intake-agent.html   # App UI + mic + live transcript + intake logic
+├── server.js                 # Static server + secure temporary token endpoint
+├── package.json              # Node start command
+├── run-medivoice.ps1         # Windows secure launcher
+├── .env.example              # Key-name example only — no secrets
+├── .gitignore                # Prevents local secrets from being committed
+└── README.md
 ```
 
----
+## Safety / scope
 
-## ⚡ How to Run Locally
+MediVoice is a **hackathon prototype**, not a medical device. It structures patient-reported information and surfaces a demo urgency signal; it does not diagnose, prescribe, or replace clinician judgment.
 
-### Option 1: Direct (Easiest)
-1. Download `voice-intake-agent.html`
-2. Double-click to open in browser
-3. Click mic → speak → see magic
+## Submission checklist
 
-### Option 2: With Live AssemblyAI Transcription
-1. Get a free API key at [assemblyai.com](https://assemblyai.com)
-2. Open the app
-3. Paste your API key in the input field
-4. Click "Connect" → then mic → speak!
+- [x] Public GitHub project
+- [x] Core UI and intake workflow
+- [x] AssemblyAI v3 live-stream integration
+- [x] Secure temporary-token architecture
+- [x] Real API-key end-to-end mic test
+- [x] Doctor Summary hotfix verified
+- [ ] ~2 minute demo video
+- [ ] Final lablab.ai submission
+- [ ] Reopen submission page and verify links/files
 
-### Demo Mode (No API key needed)
-Click mic without an API key — the app runs a realistic patient simulation automatically so you can see the full flow.
+## Built by
 
----
-
-## 🏥 Real-World Impact
-
-- **500+ hours saved** per hospital per month
-- **Accessible** to elderly patients who struggle with paper forms
-- **Multilingual ready** — AssemblyAI supports 99+ languages
-- **Zero installation** — works on any device with a browser
-- **HIPAA-ready architecture** — no data stored, no server required
-
----
-
-## 🖥️ Screenshots
-
-### Live Transcription + Data Extraction
-Patient speaks → words appear live → fields auto-fill in real time
-
-### Doctor's Intake Report
-One click generates a complete, structured clinical report ready for the physician
-
----
-
-## 🔮 Future Roadmap
-
-- [ ] Multi-language support (Hindi, Spanish, French)
-- [ ] EHR system integration (Epic, Cerner)
-- [ ] Voice-guided patient prompts ("Tell me about your pain")
-- [ ] Pediatric intake mode
-- [ ] PDF export of intake report
-- [ ] HIPAA-compliant cloud storage option
-
----
-
-## 👨‍💻 Built By
-
-**Ranvir** — AssemblyAI Hackathon 2026
-
----
-
-## 📄 License
-
-MIT License — free to use, modify, and distribute.
-
----
-
-*Built with ❤️ using AssemblyAI for the Voice Agent Hackathon 2026*
+**Ranvir Jat** — AssemblyAI Voice Agent Hackathon 2026

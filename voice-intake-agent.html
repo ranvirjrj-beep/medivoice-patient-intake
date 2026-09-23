@@ -416,18 +416,21 @@
 <header>
   <div class="logo-mark">🩺</div>
   <h1>MediVoice</h1>
-  <p>Patient Intake Agent · AssemblyAI Hackathon 2026</p>
+  <p>Patient Intake Voice Agent · AssemblyAI Hackathon 2026</p>
 </header>
 
 <div class="api-notice">
   <span>ℹ️</span>
-  <div>
-    <strong>Demo Mode:</strong> Enter your AssemblyAI API key below to enable live transcription. Without a key, the app runs a realistic simulation so you can see the full flow. Your key is never stored or sent anywhere except AssemblyAI.
+  <div style="width:100%;">
+    <strong id="modeTitle">Live mode ready:</strong>
+    MediVoice uses a short-lived AssemblyAI token from the local/server backend, so the API key never appears in this page.
     <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-      <input id="apiKeyInput" type="password" placeholder="AssemblyAI API key (optional for demo)" 
-        style="padding:7px 12px; border-radius:7px; border:1px solid var(--border); background:var(--surface); color:var(--text); font-size:13px; width:320px; font-family:Inter,sans-serif;">
-      <button class="btn btn-primary" onclick="saveKey()" style="padding:7px 14px;">Connect</button>
+      <button class="btn btn-primary" id="liveModeBtn" onclick="enableLiveMode()" style="padding:7px 14px;">Enable Live AssemblyAI</button>
+      <button class="btn btn-ghost" onclick="enableDemoMode()" style="padding:7px 14px;">Use Demo Simulation</button>
       <span id="keyStatus" style="font-size:12px; color:var(--green); font-weight:600;"></span>
+    </div>
+    <div style="margin-top:8px; font-size:12px; color:var(--text-muted);">
+      Demo only — not a medical device and not for diagnosis or emergency decision-making.
     </div>
   </div>
 </div>
@@ -441,8 +444,8 @@
       <div class="card-title">Voice Recorder</div>
       <div class="badge-row">
         <span class="badge badge-blue">Real-time STT</span>
-        <span class="badge badge-green">AssemblyAI Universal-3.5</span>
-        <span class="badge badge-purple">Sub-300ms latency</span>
+        <span class="badge badge-green">AssemblyAI Universal-3.5 Pro</span>
+        <span class="badge badge-purple">v3 Streaming API</span>
       </div>
       <div class="recorder-center">
         <div class="mic-ring" id="micRing">
@@ -460,7 +463,7 @@
         </div>
         <div class="status-text">
           <span class="status-dot" id="statusDot"></span>
-          <span id="statusText">Click the mic to start speaking</span>
+          <span id="statusText">Choose Live or Demo mode, then click the mic</span>
         </div>
       </div>
     </div>
@@ -514,7 +517,7 @@
       </div>
 
       <div class="field">
-        <label>Urgency Level</label>
+        <label>Urgency Signal (Demo)</label>
         <div class="field-value" id="field-urgency">—</div>
       </div>
 
@@ -536,7 +539,7 @@
       <button class="btn btn-primary" id="generateBtn" onclick="generateSummary()" disabled>
         Generate Doctor Summary
       </button>
-      <button class="btn btn-ghost" onclick="copyReport()">Copy Report</button>
+      <button class="btn btn-ghost" onclick="copyReport(event)">Copy Report</button>
     </div>
   </div>
 
@@ -553,28 +556,57 @@
 <script>
 // ─── State ──────────────────────────────────────────────────────────────────
 let isRecording = false;
-let mediaRecorder = null;
 let ws = null;
-let apiKey = '';
 let finalTranscript = '';
 let partialText = '';
 let wordCount = 0;
 let simulationInterval = null;
 let extractionTimeout = null;
 let audioContext = null;
-let analyser = null;
-let animFrame = null;
+let mediaStream = null;
+let micSource = null;
+let processor = null;
+let silentGain = null;
+let selectedMode = null; // 'live' | 'demo'
+let assemblyToken = null;
+let stopResolve = null;
 
-// ─── API Key ─────────────────────────────────────────────────────────────────
-function saveKey() {
-  const input = document.getElementById('apiKeyInput');
-  apiKey = input.value.trim();
-  if (apiKey) {
-    document.getElementById('keyStatus').textContent = '✓ Key saved — live mode active';
-    input.value = '••••••••••••••••';
-  } else {
-    document.getElementById('keyStatus').textContent = '';
+const TARGET_SAMPLE_RATE = 16000;
+
+// ─── Mode selection ──────────────────────────────────────────────────────────
+async function enableLiveMode() {
+  const status = document.getElementById('keyStatus');
+  const btn = document.getElementById('liveModeBtn');
+  status.textContent = 'Checking secure token…';
+  btn.disabled = true;
+
+  try {
+    const response = await fetch('/api/assemblyai-token', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`Token endpoint returned ${response.status}`);
+    const data = await response.json();
+    if (!data.token) throw new Error('No token returned');
+    assemblyToken = data.token;
+    selectedMode = 'live';
+    status.textContent = '✓ Live AssemblyAI ready';
+    document.getElementById('modeTitle').textContent = 'Live mode selected:';
+    setStatus('', 'Live mode ready — click the mic');
+  } catch (error) {
+    console.error(error);
+    assemblyToken = null;
+    selectedMode = null;
+    status.textContent = 'Live token unavailable — start the Node server with ASSEMBLYAI_API_KEY';
+    setStatus('', 'Live mode not configured');
+  } finally {
+    btn.disabled = false;
   }
+}
+
+function enableDemoMode() {
+  selectedMode = 'demo';
+  assemblyToken = null;
+  document.getElementById('keyStatus').textContent = '✓ Demo simulation selected';
+  document.getElementById('modeTitle').textContent = 'Demo mode selected:';
+  setStatus('', 'Demo mode ready — click the mic');
 }
 
 // ─── Recording toggle ─────────────────────────────────────────────────────────
@@ -582,115 +614,222 @@ async function toggleRecording() {
   if (!isRecording) {
     await startRecording();
   } else {
-    stopRecording();
+    await stopRecording();
   }
 }
 
 async function startRecording() {
+  if (!selectedMode) {
+    setStatus('', 'Choose Live AssemblyAI or Demo Simulation first');
+    return;
+  }
+
   isRecording = true;
   const micBtn = document.getElementById('micBtn');
   const micRing = document.getElementById('micRing');
   micBtn.classList.add('recording');
   micBtn.textContent = '⏹';
   micRing.classList.add('recording');
-  setStatus('live', 'Listening...');
+  setStatus('live', selectedMode === 'live' ? 'Listening live…' : 'Running demo simulation…');
   startWaveform();
 
-  // Clear placeholder
   const box = document.getElementById('transcriptBox');
   if (box.querySelector('.placeholder')) box.innerHTML = '';
 
-  if (apiKey) {
-    await startLiveTranscription();
-  } else {
-    startSimulation();
+  try {
+    if (selectedMode === 'live') {
+      if (!assemblyToken) await enableLiveMode();
+      if (!assemblyToken) throw new Error('No AssemblyAI token available');
+      await startLiveTranscription();
+    } else {
+      startSimulation();
+    }
+  } catch (error) {
+    console.error('Start failed:', error);
+    setStatus('', 'Live start failed — choose Demo or check server configuration');
+    await stopRecording({ skipFinalize: true });
   }
 }
 
-function stopRecording() {
+async function stopRecording({ skipFinalize = false } = {}) {
+  if (!isRecording && !ws && !mediaStream) return;
   isRecording = false;
+
   const micBtn = document.getElementById('micBtn');
   const micRing = document.getElementById('micRing');
   micBtn.classList.remove('recording');
   micBtn.textContent = '🎤';
   micRing.classList.remove('recording');
-  setStatus('', 'Processing complete');
   stopWaveform();
 
-  if (ws) { ws.close(); ws = null; }
-  if (mediaRecorder) { mediaRecorder.stop(); mediaRecorder = null; }
-  if (simulationInterval) { clearInterval(simulationInterval); simulationInterval = null; }
-  if (audioContext) { audioContext.close(); audioContext = null; }
+  if (simulationInterval) {
+    clearInterval(simulationInterval);
+    simulationInterval = null;
+  }
 
-  // Add any remaining partial as final
+  if (processor) {
+    processor.disconnect();
+    processor.onaudioprocess = null;
+    processor = null;
+  }
+  if (micSource) {
+    micSource.disconnect();
+    micSource = null;
+  }
+  if (silentGain) {
+    silentGain.disconnect();
+    silentGain = null;
+  }
+  if (mediaStream) {
+    mediaStream.getTracks().forEach(track => track.stop());
+    mediaStream = null;
+  }
+  if (audioContext) {
+    await audioContext.close().catch(() => {});
+    audioContext = null;
+  }
+
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    setStatus('', 'Finishing transcript…');
+    try {
+      ws.send(JSON.stringify({ type: 'Terminate' }));
+      await new Promise(resolve => {
+        stopResolve = resolve;
+        setTimeout(resolve, 1800);
+      });
+    } catch (_) {}
+  }
+  if (ws) {
+    try { ws.close(); } catch (_) {}
+    ws = null;
+  }
+
   if (partialText) {
-    finalTranscript += ' ' + partialText;
+    appendFinalText(partialText);
     partialText = '';
     renderTranscript();
   }
 
-  if (finalTranscript.trim()) {
+  if (!skipFinalize && finalTranscript.trim()) {
+    setStatus('', 'Processing complete');
     document.getElementById('generateBtn').disabled = false;
     extractData(finalTranscript);
     generateClinicalNote(finalTranscript);
+  } else if (!skipFinalize) {
+    setStatus('', 'No speech captured');
   }
 }
 
-// ─── Live AssemblyAI transcription ────────────────────────────────────────────
+// ─── Live AssemblyAI v3 transcription ────────────────────────────────────────
 async function startLiveTranscription() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  mediaStream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      channelCount: 1,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true
+    }
+  });
 
-    // Connect waveform analyser
-    audioContext = new AudioContext();
-    const source = audioContext.createMediaStreamSource(stream);
-    analyser = audioContext.createAnalyser();
-    analyser.fftSize = 256;
-    source.connect(analyser);
+  audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  micSource = audioContext.createMediaStreamSource(mediaStream);
+  processor = audioContext.createScriptProcessor(4096, 1, 1);
+  silentGain = audioContext.createGain();
+  silentGain.gain.value = 0;
 
-    // Open AssemblyAI WebSocket
-    ws = new WebSocket(`wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000`, [], {
-      headers: { Authorization: apiKey }
-    });
+  const params = new URLSearchParams({
+    sample_rate: String(TARGET_SAMPLE_RATE),
+    speech_model: 'universal-3-5-pro',
+    domain: 'medical-v1',
+    mode: 'balanced',
+    token: assemblyToken
+  });
+  ws = new WebSocket(`wss://streaming.assemblyai.com/v3/ws?${params.toString()}`);
+  ws.binaryType = 'arraybuffer';
 
-    // Fallback: standard WebSocket with auth in URL or first message
-    ws = new WebSocket('wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000&encoding=pcm_s16le');
-    ws.onopen = () => ws.send(JSON.stringify({ auth_token: apiKey }));
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('AssemblyAI connection timed out')), 8000);
 
-    ws.onmessage = (evt) => {
-      const msg = JSON.parse(evt.data);
-      if (msg.message_type === 'PartialTranscript') {
-        partialText = msg.text;
-        renderTranscript();
-      } else if (msg.message_type === 'FinalTranscript' && msg.text) {
-        finalTranscript += (finalTranscript ? ' ' : '') + msg.text;
-        partialText = '';
-        renderTranscript();
-        scheduleExtraction();
-      }
+    ws.onopen = () => {
+      clearTimeout(timeout);
+      setStatus('live', 'Live AssemblyAI connected — speak now');
+      resolve();
     };
 
     ws.onerror = () => {
-      // Fallback to simulation if WebSocket fails
-      ws = null;
-      startSimulation();
+      clearTimeout(timeout);
+      reject(new Error('AssemblyAI WebSocket connection failed'));
     };
+  });
 
-    // Record and send audio chunks
-    mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
-    mediaRecorder.ondataavailable = async (e) => {
-      if (ws && ws.readyState === 1 && e.data.size > 0) {
-        const buf = await e.data.arrayBuffer();
-        // Convert to PCM and send
-        ws.send(buf);
+  ws.onmessage = event => {
+    let msg;
+    try { msg = JSON.parse(event.data); } catch (_) { return; }
+
+    if (msg.type === 'Turn' && typeof msg.transcript === 'string') {
+      if (msg.end_of_turn) {
+        appendFinalText(msg.transcript);
+        partialText = '';
+        renderTranscript();
+        scheduleExtraction();
+      } else {
+        partialText = msg.transcript;
+        renderTranscript();
       }
-    };
-    mediaRecorder.start(250);
+    } else if (msg.type === 'Termination') {
+      if (stopResolve) {
+        stopResolve();
+        stopResolve = null;
+      }
+    }
+  };
 
-  } catch (err) {
-    console.warn('Mic or WS error, falling back to simulation:', err);
-    startSimulation();
+  ws.onclose = () => {
+    if (isRecording) setStatus('', 'Live connection closed');
+    if (stopResolve) {
+      stopResolve();
+      stopResolve = null;
+    }
+  };
+
+  processor.onaudioprocess = event => {
+    if (!isRecording || !ws || ws.readyState !== WebSocket.OPEN) return;
+    const input = event.inputBuffer.getChannelData(0);
+    const pcm16 = downsampleToPCM16(input, audioContext.sampleRate, TARGET_SAMPLE_RATE);
+    if (pcm16.byteLength) ws.send(pcm16.buffer);
+  };
+
+  micSource.connect(processor);
+  processor.connect(silentGain);
+  silentGain.connect(audioContext.destination);
+}
+
+function downsampleToPCM16(float32, inputRate, outputRate) {
+  if (outputRate > inputRate) throw new Error('Output sample rate must not exceed input rate');
+  const ratio = inputRate / outputRate;
+  const outLength = Math.max(1, Math.round(float32.length / ratio));
+  const out = new Int16Array(outLength);
+
+  let inputOffset = 0;
+  for (let i = 0; i < outLength; i++) {
+    const nextOffset = Math.min(float32.length, Math.round((i + 1) * ratio));
+    let sum = 0;
+    let count = 0;
+    for (; inputOffset < nextOffset; inputOffset++) {
+      sum += float32[inputOffset];
+      count++;
+    }
+    const sample = Math.max(-1, Math.min(1, count ? sum / count : 0));
+    out[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
   }
+  return out;
+}
+
+function appendFinalText(text) {
+  const clean = text.trim();
+  if (!clean) return;
+  if (finalTranscript.endsWith(clean)) return;
+  finalTranscript += (finalTranscript ? ' ' : '') + clean;
 }
 
 // ─── Demo simulation ──────────────────────────────────────────────────────────
@@ -715,28 +854,27 @@ const demoScript = [
   " The pain gets worse when I lie down flat.",
   " I've been using antacids but they don't really help."
 ];
-
 let demoIdx = 0;
 
 function startSimulation() {
   demoIdx = 0;
-  simulationInterval = setInterval(() => {
+  simulationInterval = setInterval(async () => {
     if (!isRecording || demoIdx >= demoScript.length) {
-      if (demoIdx >= demoScript.length) stopRecording();
+      if (demoIdx >= demoScript.length) await stopRecording();
       return;
     }
-    const chunk = demoScript[demoIdx++];
-    finalTranscript += chunk;
+    appendFinalText(demoScript[demoIdx++]);
     renderTranscript();
     scheduleExtraction();
-  }, 900);
+  }, 650);
 }
 
 // ─── Transcript rendering ─────────────────────────────────────────────────────
 function renderTranscript() {
   const box = document.getElementById('transcriptBox');
-  const combined = finalTranscript + (partialText ? `<span class="partial"> ${partialText}</span>` : '');
-  box.innerHTML = combined;
+  const finalSpan = escapeHtml(finalTranscript);
+  const partialSpan = partialText ? `<span class="partial"> ${escapeHtml(partialText)}</span>` : '';
+  box.innerHTML = finalSpan + partialSpan;
   box.scrollTop = box.scrollHeight;
 
   const wc = finalTranscript.trim().split(/\s+/).filter(Boolean).length;
@@ -744,58 +882,55 @@ function renderTranscript() {
   document.getElementById('wordCount').textContent = `${wc} word${wc !== 1 ? 's' : ''}`;
 }
 
-// ─── Real-time extraction (runs while recording) ──────────────────────────────
+function escapeHtml(text) {
+  return text.replace(/[&<>'"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[ch]));
+}
+
+// ─── Real-time extraction ─────────────────────────────────────────────────────
 function scheduleExtraction() {
   clearTimeout(extractionTimeout);
-  extractionTimeout = setTimeout(() => extractData(finalTranscript, true), 600);
+  extractionTimeout = setTimeout(() => extractData(finalTranscript, true), 350);
 }
 
 function extractData(text, partial = false) {
   const t = text.toLowerCase();
 
-  // Chief complaint
-  const complaintMatch = text.match(/(?:having|have|experienced?|suffering from|feels? like)\s+([^.!?,]{5,60})/i);
-  setField('field-complaint', complaintMatch ? cap(complaintMatch[1].trim()) : null);
+  const complaintMatch = text.match(/(?:having|have|had|experienced?|suffering from|feels? like)\s+([^.!?,]{5,80})/i);
+  let complaint = complaintMatch ? complaintMatch[1].trim() : '';
+  complaint = complaint.replace(/\s+for\s+(?:about\s+|the\s+last\s+|last\s+)?\w+\s+(?:day|week|hour|month|year)s?.*$/i, '').trim();
+  setField('field-complaint', complaint ? cap(complaint) : null);
 
-  // Duration
   const durationMatch = text.match(/(?:for|past|last|about|since|over)\s+(?:the\s+)?(\w+\s+(?:day|week|hour|month|year)\w*(?:\s+(?:and|or)\s+\w+\s+\w+)?)/i);
   setField('field-duration', durationMatch ? cap(durationMatch[1]) : null);
 
-  // Pain score
   const painMatch = text.match(/(\d+)\s*(?:out of\s*10|\/\s*10|on a scale)/i) || text.match(/pain\s+(?:is\s+)?(?:about\s+)?(?:a\s+)?(\d+)/i);
   setField('field-pain', painMatch ? painMatch[1] + ' / 10' : null);
 
-  // Location
   const locations = ['chest', 'stomach', 'abdomen', 'head', 'back', 'shoulder', 'jaw', 'arm', 'leg', 'throat', 'neck'];
   const foundLocs = locations.filter(l => t.includes(l));
   setField('field-location', foundLocs.length ? foundLocs.map(cap).join(', ') : null);
 
-  // Symptoms
   const symptoms = [
     'chest pain', 'shortness of breath', 'nausea', 'dizziness', 'lightheaded',
     'fever', 'fatigue', 'headache', 'vomiting', 'palpitations', 'sweating',
     'cough', 'wheezing', 'swelling', 'numbness', 'tingling'
   ];
-  const found = symptoms.filter(s => t.includes(s));
-  setTags('field-symptoms', found);
+  setTags('field-symptoms', symptoms.filter(s => t.includes(s)));
 
-  // Medications / allergies
   const medKeywords = ['metformin', 'lisinopril', 'aspirin', 'ibuprofen', 'atorvastatin', 'amlodipine', 'penicillin'];
   const allergyMatch = text.match(/allerg(?:ic|y)\s+to\s+([\w\s,]+?)(?:\.|,|and|$)/i);
-  const meds = medKeywords.filter(m => t.includes(m));
+  const allergyText = allergyMatch ? allergyMatch[1].trim().toLowerCase() : '';
+  const meds = medKeywords.filter(m => t.includes(m) && !allergyText.includes(m));
   if (allergyMatch) meds.push('⚠️ Allergy: ' + cap(allergyMatch[1].trim()));
   setTags('field-meds', meds);
 
-  // Urgency
   const urgentWords = ['chest pain', 'shortness of breath', 'jaw', 'left shoulder', 'heart attack', 'radiates'];
   const urgencyScore = urgentWords.filter(w => t.includes(w)).length;
-  const urgency = urgencyScore >= 3 ? '🔴 High — Possible cardiac' : urgencyScore >= 1 ? '🟡 Moderate' : '🟢 Low';
+  const urgency = urgencyScore >= 3 ? '🔴 High signal — prompt clinician review' : urgencyScore >= 1 ? '🟡 Moderate signal' : '🟢 Low signal';
   setField('field-urgency', urgency);
 
-  // Tone
   const distressWords = ['worried', 'scared', 'anxious', 'terrible', 'really bad', 'awful'];
-  const distress = distressWords.some(w => t.includes(w));
-  setField('field-tone', distress ? 'Anxious / Distressed' : 'Calm');
+  setField('field-tone', distressWords.some(w => t.includes(w)) ? 'Anxious / Distressed' : 'Calm');
 }
 
 function setField(id, value) {
@@ -812,7 +947,7 @@ function setField(id, value) {
 function setTags(id, items) {
   const el = document.getElementById(id);
   if (items.length) {
-    el.innerHTML = items.map(i => `<span class="tag">${cap(i)}</span>`).join('');
+    el.innerHTML = items.map(i => `<span class="tag">${escapeHtml(cap(i))}</span>`).join('');
     el.classList.add('filled');
   } else {
     el.innerHTML = '<span style="color:var(--text-muted); font-style:italic; font-size:13px;">None detected yet</span>';
@@ -822,109 +957,61 @@ function setTags(id, items) {
 
 function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
-// ─── Clinical note ────────────────────────────────────────────────────────────
-async function generateClinicalNote(text) {
+// ─── Clinical note + report (deterministic, zero extra API keys) ──────────────
+function generateClinicalNote(text) {
   const noteEl = document.getElementById('clinicalNote');
-  noteEl.innerHTML = '<div class="thinking"><span></span><span></span><span></span></div> Generating clinical note...';
+  const complaint = fieldText('field-complaint');
+  const duration = fieldText('field-duration');
+  const pain = fieldText('field-pain');
+  const location = fieldText('field-location');
+  const urgency = fieldText('field-urgency');
+
+  const pieces = [
+    `S: Patient reports ${complaint !== '—' ? complaint.toLowerCase() : 'the symptoms described in the transcript'}`,
+    duration !== '—' ? `for approximately ${duration.toLowerCase()}` : '',
+    pain !== '—' ? `with reported pain ${pain}` : '',
+    location !== '—' ? `involving ${location}` : ''
+  ].filter(Boolean);
+
+  noteEl.textContent = `${pieces.join(' ')}. Transcript captured with AssemblyAI. ${urgency !== '—' ? `Demo urgency signal: ${urgency}.` : ''} This prototype documents patient-reported information and does not diagnose.`;
+  noteEl.style.color = 'var(--text)';
   noteEl.style.fontStyle = 'normal';
-  noteEl.style.color = 'var(--text-muted)';
-
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        messages: [{
-          role: 'user',
-          content: `You are a medical scribe. Based on this patient's spoken intake statement, write a brief structured clinical note (3-4 sentences, SOAP style, professional medical language). Do not diagnose. Just document. Statement: "${text}"`
-        }]
-      })
-    });
-    const data = await res.json();
-    const note = data.content?.[0]?.text || '';
-    noteEl.textContent = note;
-    noteEl.style.color = 'var(--text)';
-    noteEl.style.fontStyle = 'normal';
-  } catch (e) {
-    // Fallback
-    noteEl.textContent = 'S: Patient presents with chest pain rated 7/10, onset 3 days ago, radiating to left shoulder and jaw with associated shortness of breath and nausea. PMH: Diabetes, Hypertension. Meds: Metformin, Lisinopril. Allergy: Penicillin. FH: Paternal MI at age 58. O: Pain worsens supine, not relieved by antacids.';
-    noteEl.style.color = 'var(--text)';
-    noteEl.style.fontStyle = 'normal';
-  }
 }
 
-// ─── Doctor summary ───────────────────────────────────────────────────────────
-async function generateSummary() {
-  const btn = document.getElementById('generateBtn');
-  btn.disabled = true;
-  btn.textContent = 'Generating...';
+function fieldText(id) {
+  return document.getElementById(id).textContent.trim();
+}
 
+function tagTexts(id) {
+  return [...document.getElementById(id).querySelectorAll('.tag')].map(el => el.textContent.trim());
+}
+
+function generateSummary() {
   const reportEl = document.getElementById('summaryReport');
-  reportEl.innerHTML = '<div class="thinking" style="display:inline-flex;gap:4px;"><span></span><span></span><span></span></div> Building intake report...';
+  const symptoms = tagTexts('field-symptoms');
+  const meds = tagTexts('field-meds');
 
-  const text = finalTranscript;
+  reportEl.textContent = `PATIENT INTAKE REPORT\nGenerated: ${new Date().toLocaleString()}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nCHIEF COMPLAINT\n${fieldText('field-complaint')}\n\nDURATION / LOCATION / PAIN\nDuration: ${fieldText('field-duration')}\nLocation: ${fieldText('field-location')}\nPain: ${fieldText('field-pain')}\n\nREPORTED SYMPTOMS\n${symptoms.length ? symptoms.map(s => `• ${s}`).join('\n') : 'None detected from transcript'}\n\nMEDICATIONS / ALLERGIES MENTIONED\n${meds.length ? meds.map(s => `• ${s}`).join('\n') : 'None detected from transcript'}\n\nTONE / DISTRESS\n${fieldText('field-tone')}\n\nURGENCY SIGNAL — DEMO ONLY\n${fieldText('field-urgency')}\n\nSOURCE TRANSCRIPT\n${finalTranscript}\n\nNote: MediVoice is a hackathon prototype for structuring patient-reported intake information. It is not a medical device, diagnosis system, or substitute for clinical judgment.`;
 
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        messages: [{
-          role: 'user',
-          content: `You are a medical scribe AI. Based on this patient's spoken intake, produce a clean structured intake report for the attending physician. Include: Chief Complaint, History of Present Illness, Reported Symptoms, Medications & Allergies, Family History, and a Suggested Triage Level. Use professional clinical language. Do not diagnose. Patient statement: "${text}"`
-        }]
-      })
-    });
-    const data = await res.json();
-    const summary = data.content?.[0]?.text || '';
-    reportEl.textContent = summary;
-  } catch (e) {
-    reportEl.textContent = generateFallbackReport();
+  const btn = document.getElementById('generateBtn');
+  if (btn) {
+    btn.textContent = '✓ Report Generated';
+    setTimeout(() => { btn.textContent = 'Generate Doctor Summary'; }, 2200);
   }
-
-  btn.textContent = 'Regenerate';
-  btn.disabled = false;
-}
-
-function generateFallbackReport() {
-  return `PATIENT INTAKE REPORT
-Generated: ${new Date().toLocaleString()}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-CHIEF COMPLAINT
-Chest pain, sharp and tightening in quality, rated 7/10 in severity.
-
-HISTORY OF PRESENT ILLNESS
-Patient presents with a 3-day history of central chest pain with onset on Sunday evening. Pain is described as sharp with a tightening quality, localized to the center of the chest with radiation to the left shoulder and jaw. Associated symptoms include exertional dyspnea (climbing stairs), nausea, and lightheadedness. Pain is positional, worsening in the supine position. Antacid therapy has not provided relief.
-
-REPORTED SYMPTOMS
-• Chest pain (7/10) — central, radiating to L shoulder and jaw
-• Shortness of breath on exertion
-• Nausea
-• Lightheadedness
-
-MEDICATIONS & ALLERGIES
-• Metformin (ongoing — diabetes management)
-• Lisinopril (ongoing — hypertension management)
-⚠ ALLERGY: Penicillin
-
-FAMILY HISTORY
-Father: Myocardial infarction at age 58.
-
-SUGGESTED TRIAGE LEVEL
-🔴 HIGH PRIORITY — Symptoms consistent with potential acute coronary syndrome. Recommend immediate ECG, troponin levels, and cardiology review.`;
+  requestAnimationFrame(() => {
+    reportEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    reportEl.setAttribute('tabindex', '-1');
+    reportEl.focus({ preventScroll: true });
+  });
 }
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
-function copyReport() {
+function copyReport(event) {
   const text = document.getElementById('summaryReport').textContent;
-  if (!text.includes('placeholder') && text.trim()) {
+  if (text.trim()) {
     navigator.clipboard.writeText(text).then(() => {
-      const btn = event.target;
+      const btn = event?.target;
+      if (!btn) return;
       btn.textContent = '✓ Copied!';
       setTimeout(() => btn.textContent = 'Copy Report', 2000);
     });
@@ -952,15 +1039,11 @@ function setStatus(type, text) {
   document.getElementById('statusText').textContent = text;
 }
 
-// ─── Waveform animation ───────────────────────────────────────────────────────
 function startWaveform() {
-  const bars = document.querySelectorAll('.wave-bar');
-  bars.forEach(b => b.classList.add('active'));
+  document.querySelectorAll('.wave-bar').forEach(b => b.classList.add('active'));
 }
-
 function stopWaveform() {
-  const bars = document.querySelectorAll('.wave-bar');
-  bars.forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.wave-bar').forEach(b => b.classList.remove('active'));
 }
 </script>
 </body>
