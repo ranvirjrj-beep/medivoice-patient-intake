@@ -1,5 +1,15 @@
 {
-  "cleanUrls": true,
+  "version": 2,
+  "builds": [
+    { "src": "index.html", "use": "@vercel/static" },
+    { "src": "voice-intake-agent.html", "use": "@vercel/static" },
+    { "src": "api/assemblyai-token.js", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/api/assemblyai-token", "dest": "/api/assemblyai-token.js" },
+    { "src": "/", "dest": "/index.html" },
+    { "src": "/voice-intake-agent.html", "dest": "/voice-intake-agent.html" }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",
